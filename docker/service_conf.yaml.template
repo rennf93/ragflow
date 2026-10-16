@@ -9,6 +9,20 @@ api:
   # replaces that default, so keep the loopback entries when adding the address
   # or CIDR of a further proxy in front of nginx; an empty list trusts none.
   # trusted_proxies: ['127.0.0.0/8', '::1/128']
+  # Optional request guard for the Go API and admin servers, off by default.
+  # Per-IP rate limiting, an IP allow/block list and attack-pattern screening
+  # of the path, query and headers (request bodies are never scanned). The
+  # client address comes from the same trusted_proxies list as above.
+  # RAGFLOW_API_GUARD_* environment variables override these settings.
+  # guard:
+  #   enabled: true
+  #   rate_limit: 600 # requests per rate_limit_window seconds, per client; 0 disables
+  #   rate_limit_window: 60
+  #   ip_allowlist: [] # when non-empty only these IPs / CIDRs are served
+  #   ip_blocklist: []
+  #   screen_requests: false # attack-pattern screening of path, query and headers
+  #   screen_excluded_params: [] # free-text query parameters to skip when screening
+  #   use_kvrocks: false # share counters between replicas through Kvrocks
 
 # Optional standalone MCP listener for the Go API server. Uncomment to enable.
 # RAGFLOW_MCP_* environment variables override these settings.

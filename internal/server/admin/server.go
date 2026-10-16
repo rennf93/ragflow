@@ -30,6 +30,7 @@ import (
 
 	adminapi "ragflow/internal/admin"
 	"ragflow/internal/common"
+	"ragflow/internal/guard"
 	"ragflow/internal/server"
 	"ragflow/internal/server/bootstrap"
 )
@@ -77,6 +78,17 @@ func Run(ctx context.Context, serverName string, args *bootstrap.ServerArgs) err
 	// Middleware
 	ginEngine.Use(common.GinLogger())
 	ginEngine.Use(gin.Recovery())
+
+	// Optional request guard (api.guard.enabled, off by default).
+	guardMiddleware, closeGuard, err := guard.New(globalConfig.GetAPIServerConfig().Guard,
+		globalConfig.GetAPIServerConfig().TrustedProxies, globalConfig.GetKvrocksConfig())
+	if err != nil {
+		return err
+	}
+	if guardMiddleware != nil {
+		defer closeGuard()
+		ginEngine.Use(guardMiddleware)
+	}
 
 	// Setup routes
 	r.Setup(ginEngine)
