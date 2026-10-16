@@ -55,6 +55,7 @@ import (
 	"ragflow/internal/dao"
 	"ragflow/internal/engine"
 	"ragflow/internal/engine/kvrocks"
+	"ragflow/internal/guard"
 	"ragflow/internal/ingestion/task"
 	_ "ragflow/internal/ingestion/wire"
 	"ragflow/internal/server"
@@ -365,10 +366,23 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 	// it twice for those endpoints and double every access-log line.
 	ginEngine.Use(gin.Recovery())
 
+	// Optional request guard (api.guard.enabled, off by default). It sits right
+	// after Recovery so a blocked request never reaches a handler, and sees the
+	// same trusted-proxy client address as c.ClientIP().
+	guardMiddleware, closeGuard, err := guard.New(globalConfig.GetAPIServerConfig().Guard,
+		globalConfig.GetAPIServerConfig().TrustedProxies, globalConfig.GetKvrocksConfig())
+	if err != nil {
+		return err
+	}
+	if guardMiddleware != nil {
+		defer closeGuard()
+		ginEngine.Use(guardMiddleware)
+	}
+
 	// Setup routes
 	r.Setup(ginEngine)
 
-	_, err := channels.Start(ctx)
+	_, err = channels.Start(ctx)
 	if err != nil {
 		return fmt.Errorf("start chat-channel: %w", err)
 	}
