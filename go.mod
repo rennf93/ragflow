@@ -64,7 +64,7 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/rennf93/gin-guard v1.5.0
-	github.com/rennf93/guard-core-go/v4 v4.4.0
+	github.com/rennf93/guard-core-go/v4 v4.4.1
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/signintech/gopdf v0.36.1
