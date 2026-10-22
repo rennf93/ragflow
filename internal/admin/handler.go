@@ -25,6 +25,7 @@ import (
 	"ragflow/internal/common"
 	"ragflow/internal/engine"
 	"ragflow/internal/engine/kvrocks"
+	"ragflow/internal/guard"
 	"ragflow/internal/handler"
 	"ragflow/internal/server"
 	"ragflow/internal/service"
@@ -40,6 +41,8 @@ import (
 type Handler struct {
 	service     *Service
 	userService *service.UserService
+
+	guardSettings guard.AdminHandlers
 }
 
 // NewHandler create admin handler
@@ -48,6 +51,12 @@ func NewHandler(svc *Service) *Handler {
 		service:     svc,
 		userService: service.NewUserService(),
 	}
+}
+
+// UseGuardApplier makes each stored version of the guard settings reach the
+// admin server's own guard.
+func (h *Handler) UseGuardApplier(applier guard.Applier) {
+	h.guardSettings.Applier = applier
 }
 
 // ErrorResponse error response

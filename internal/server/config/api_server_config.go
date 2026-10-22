@@ -46,9 +46,6 @@ type APIServerConfig struct {
 	// list trusts no proxy at all.
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
 
-	// Guard configures the optional request guard, see GuardConfig.
-	Guard GuardConfig
-
 	Authentication AuthenticationConfig `mapstructure:"authentication"`
 }
 
@@ -90,7 +87,6 @@ func (c *Config) ParseAPIServerConfig(v *viper.Viper) error {
 		c.apiServer.TrustedProxies = proxies
 	}
 
-	c.parseGuardConfig(v)
 	c.parseAuthenticationConfig(v)
 
 	return nil

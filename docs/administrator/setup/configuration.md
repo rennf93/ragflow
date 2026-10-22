@@ -164,14 +164,14 @@ If you cannot download the RAGFlow Docker image, try the following mirrors.
 - `host`: The API server's IP address inside the Docker container. Defaults to `0.0.0.0`.
 - `http_port`: The API server's serving port inside the Docker container. Defaults to `9380`.
 - `trusted_proxies`: The proxy IPs or CIDRs whose `X-Forwarded-For` / `X-Real-IP` headers the Go API server trusts when resolving the client address (used by the agent webhook `ip_whitelist` and login audit records). Defaults to loopback (`['127.0.0.0/8', '::1/128']`), i.e. the nginx bundled in the Docker image. An explicit list *replaces* the default rather than extending it, so keep the loopback entries when adding a proxy placed in front of nginx, for example `['127.0.0.0/8', '::1/128', '10.0.0.0/8']`; an empty list trusts no proxy headers at all.
-- `guard`: An optional request guard for the Go API and admin servers, disabled by default. When `enabled` is `true` it applies a per-client rate limit and optional IP allow and block lists, and, with `screen_requests`, attack-pattern screening of the request path, query string and headers. Request bodies (documents, chat messages and prompts) are never scanned, streaming responses are not buffered, and the health endpoints (`/health`, `/api/v1/system/ping`, `/api/v1/system/healthz`) are never limited. The client address is resolved with the `trusted_proxies` list above. The keys can also be set with `RAGFLOW_API_GUARD_*` environment variables, for example `RAGFLOW_API_GUARD_ENABLED=true`.
-  - `enabled`: Turns the guard on. Defaults to `false`; when off no middleware is registered.
-  - `rate_limit` and `rate_limit_window`: The maximum requests per client in a window of that many seconds. Default to `600` and `60`. `rate_limit: 0` disables rate limiting. Blocked requests receive `429`.
-  - `ip_allowlist`: IPs or CIDRs. When non-empty, any other client receives `403`. Empty by default.
-  - `ip_blocklist`: IPs or CIDRs that receive `403`. Empty by default.
-  - `screen_requests`: Screens the path, query string and headers for attack patterns and answers `400` on a match. Defaults to `false`.
-  - `screen_excluded_params`: Query parameters that carry free text and are skipped by the screening. Empty by default.
-  - `use_kvrocks`: Keeps the counters in the Kvrocks instance configured for the Go services so replicas share them. Defaults to `false`, which keeps them in process memory.
+- Request guard: an optional guard for the Go API and admin servers, with a per-client rate limit, IP allow and block lists and, with `screen_requests`, attack-pattern screening of the request path, query string and headers. Its settings are managed by the Admin service, not by this file: they are stored in the `system_settings` table, read and replaced through `GET` and `PUT /api/v1/admin/guard/settings`, and delivered to the API servers in the Admin heartbeat response. Until the first settings arrive, and while `enabled` is `false`, the API passes every request through with no guard. Request bodies (documents, chat messages and prompts) are never scanned, streaming responses are not buffered, and the health endpoints (`/health`, `/api/v1/system/ping`, `/api/v1/system/healthz`) are never limited. The client address is resolved with the `trusted_proxies` list above.
+  - `enabled`: Turns the guard on. Blocked requests are logged.
+  - `rate_limit` and `rate_limit_window`: The maximum requests per client in a window of that many seconds. `rate_limit: 0` disables rate limiting; `rate_limit_window` must be at least `1` otherwise. Blocked requests receive `429`.
+  - `ip_allowlist`: IPs or CIDRs. When non-empty, any other client receives `403`.
+  - `ip_blocklist`: IPs or CIDRs that receive `403`.
+  - `screen_requests`: Screens the path, query string and headers for attack patterns and answers `400` on a match.
+  - `screen_excluded_params`: Query parameters that carry free text and are skipped by the screening.
+  - `version`: Increments on every change. A server ignores settings whose version is not higher than the one it runs. API servers pick up a change on their next heartbeat to the Admin service, which can take several heartbeat intervals.
 
 ### `mysql`
 

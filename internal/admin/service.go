@@ -37,6 +37,7 @@ import (
 	"ragflow/internal/engine/kvrocks"
 	"ragflow/internal/entity"
 	modelModule "ragflow/internal/entity/models"
+	"ragflow/internal/guard"
 	"ragflow/internal/server"
 	servicepkg "ragflow/internal/service"
 	"ragflow/internal/storage"
@@ -1339,7 +1340,11 @@ func (s *Service) HandleHeartbeat(message *common.BaseMessage) (common.ErrorCode
 		Timestamp:  message.Timestamp,
 		Ext:        message.Ext,
 	}
-	return UpdateServer(message.ServerName, status)
+	code, data, msg := UpdateServer(message.ServerName, status)
+	if code == common.CodeLicenseValid {
+		data = guard.AddSettingsToHeartbeat(context.Background(), data)
+	}
+	return code, data, msg
 }
 
 // adminBootstrapPasswordFile is where a generated first-superuser password is

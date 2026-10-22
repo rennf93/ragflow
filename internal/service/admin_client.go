@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"ragflow/internal/common"
+	"ragflow/internal/guard"
 	"ragflow/internal/server"
 	"ragflow/internal/utility"
 	"time"
@@ -31,6 +32,9 @@ import (
 
 var licenseStatusCode common.ErrorCode
 var AdminServiceClient *AdminClient
+
+// GuardApplier receives the guard settings carried by an Admin heartbeat response.
+var GuardApplier guard.Applier
 
 // AdminClient is responsible for sending heartbeat reports to the admin server
 type AdminClient struct {
@@ -169,6 +173,7 @@ func (h *AdminClient) SendHeartbeat() error {
 	licenseStatusCode = responseCode
 
 	responseData := responseBody["data"]
+	guard.ApplyFromHeartbeat(GuardApplier, responseData)
 	err = h.UpdateClient(responseData)
 	if err != nil {
 		common.Error("failed to update client info", err)

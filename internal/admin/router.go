@@ -85,6 +85,10 @@ func (r *Router) Setup(engine *gin.Engine) {
 			protected.PUT("/variables", r.handler.SetVariable)
 			protected.GET("/variables/:var_name", r.handler.ShowVariable)
 
+			// Guard settings
+			protected.GET("/guard/settings", r.handler.guardSettings.Get)
+			protected.PUT("/guard/settings", r.handler.guardSettings.Put)
+
 			// Configs
 			protected.GET("/configs", r.handler.ListConfigs)
 			// Log level

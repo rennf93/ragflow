@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -38,37 +39,35 @@ import (
 // and the IP lists on excluded paths.
 var healthPaths = map[string]bool{"/health": true, "/api/v1/system/ping": true, "/api/v1/system/healthz": true}
 
-// New builds the guard middleware. It returns nil, nil when the guard is
-// disabled so the caller registers nothing. trustedProxies is the list the
-// server already hands to common.ConfigureTrustedProxies (nil means the
-// loopback default), so the guard resolves the client address from
-// X-Forwarded-For exactly as c.ClientIP() does. The returned func releases the
-// engine and must be called at shutdown.
-func New(cfg config.GuardConfig, trustedProxies []string, kvrocks config.KvrocksConfig) (gin.HandlerFunc, func(), error) {
-	if !cfg.Enabled {
-		return nil, nil, nil
-	}
+// New builds one guard from s. trustedProxies is the list the server already
+// hands to common.ConfigureTrustedProxies (nil means the loopback default), so
+// the guard resolves the client address from X-Forwarded-For exactly as
+// c.ClientIP() does. The returned func releases the engine.
+func New(s Settings, trustedProxies []string, kvrocks config.KvrocksConfig) (gin.HandlerFunc, func(), error) {
 	if trustedProxies == nil {
 		trustedProxies = common.DefaultTrustedProxies
 	}
 	secCfg, err := guardcore.NewSecurityConfig(func(c *guardcore.SecurityConfig) {
 		c.TrustedProxies = trustedProxies
-		c.EnableRedis = cfg.UseKvrocks
+		c.EnableRedis = false
 		c.RedisURL = kvrocksURL(kvrocks)
 		c.RedisPrefix = "ragflow:guard:"
 		// A shared-state outage must not take the API down.
 		c.RedisFailOpen = true
-		c.EnableRateLimiting = cfg.RateLimit > 0
-		c.RateLimit = cfg.RateLimit
-		c.RateLimitWindow = cfg.RateLimitWindow
-		c.Whitelist = cfg.IPAllowlist
-		c.Blacklist = cfg.IPBlocklist
+		c.EnableRateLimiting = s.RateLimit > 0
+		if s.RateLimit > 0 {
+			c.RateLimit = s.RateLimit
+			c.RateLimitWindow = s.RateLimitWindow
+		}
+		c.Whitelist = s.IPAllowlist
+		c.Blacklist = s.IPBlocklist
 		c.EnableIPBanning = false
-		c.EnablePenetrationDetection = cfg.ScreenRequests
+		c.EnablePenetrationDetection = s.ScreenRequests
+		c.EnabledDetectionCategories = detectionCategoriesWithoutSSRF()
 		// Chat messages, prompts and documents are free text: never scan bodies.
 		noBody := false
 		c.DetectionScanBody = &noBody
-		c.ExcludedDetectionParams = toSet(cfg.ScreenExcludedParams)
+		c.ExcludedDetectionParams = toSet(s.ScreenExcludedParams)
 		c.ExcludedDetectionHeaders = map[string]bool{"authorization": true, "cookie": true}
 		c.ExcludePaths = nil
 		// No extra response headers: the web app and embeds keep their own.
@@ -94,14 +93,12 @@ func New(cfg config.GuardConfig, trustedProxies []string, kvrocks config.Kvrocks
 	if err != nil {
 		return nil, nil, err
 	}
-	guarded := func(c *gin.Context) {
-		if healthPaths[c.Request.URL.Path] {
-			c.Next()
-			return
-		}
-		mw(c)
-	}
-	return guarded, func() { _ = engine.Close() }, nil
+	return mw, func() { _ = engine.Close() }, nil
+}
+
+// guard-core-go v4.4.1 flags a Referer on localhost or a LAN address as ssrf.
+func detectionCategoriesWithoutSSRF() []string {
+	return slices.DeleteFunc(slices.Clone(guardcore.AllDetectionCategories), func(c string) bool { return c == "ssrf" })
 }
 
 func toSet(names []string) map[string]bool {

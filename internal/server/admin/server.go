@@ -51,6 +51,12 @@ func Run(ctx context.Context, serverName string, args *bootstrap.ServerArgs) err
 
 	adminService := adminapi.NewService()
 	adminHandler := adminapi.NewHandler(adminService)
+	guardManager := guard.NewManager(globalConfig.GetAPIServerConfig().TrustedProxies, globalConfig.GetKvrocksConfig())
+	defer guardManager.Close()
+	adminHandler.UseGuardApplier(guardManager)
+	if err := guard.ApplyStored(ctx, guardManager); err != nil {
+		common.Warn("Failed to apply stored guard settings", zap.Error(err))
+	}
 
 	if err := adminapi.InitLicense(ctx); err != nil {
 		common.Warn("Failed to initialize license", zap.Error(err))
@@ -80,16 +86,7 @@ func Run(ctx context.Context, serverName string, args *bootstrap.ServerArgs) err
 	ginEngine.Use(common.GinLogger())
 	ginEngine.Use(gin.Recovery())
 
-	// Optional request guard (api.guard.enabled, off by default).
-	guardMiddleware, closeGuard, err := guard.New(globalConfig.GetAPIServerConfig().Guard,
-		globalConfig.GetAPIServerConfig().TrustedProxies, globalConfig.GetKvrocksConfig())
-	if err != nil {
-		return err
-	}
-	if guardMiddleware != nil {
-		defer closeGuard()
-		ginEngine.Use(guardMiddleware)
-	}
+	ginEngine.Use(guardManager.Middleware())
 
 	// Setup routes
 	r.Setup(ginEngine)

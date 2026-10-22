@@ -366,23 +366,18 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 	// it twice for those endpoints and double every access-log line.
 	ginEngine.Use(gin.Recovery())
 
-	// Optional request guard (api.guard.enabled, off by default). It sits right
-	// after Recovery so a blocked request never reaches a handler, and sees the
-	// same trusted-proxy client address as c.ClientIP().
-	guardMiddleware, closeGuard, err := guard.New(globalConfig.GetAPIServerConfig().Guard,
-		globalConfig.GetAPIServerConfig().TrustedProxies, globalConfig.GetKvrocksConfig())
-	if err != nil {
-		return err
-	}
-	if guardMiddleware != nil {
-		defer closeGuard()
-		ginEngine.Use(guardMiddleware)
-	}
+	// Request guard, managed by the Admin service. It sits right after Recovery
+	// so a blocked request never reaches a handler, and passes every request
+	// through until the first settings arrive in an Admin heartbeat.
+	guardManager := guard.NewManager(globalConfig.GetAPIServerConfig().TrustedProxies, globalConfig.GetKvrocksConfig())
+	defer guardManager.Close()
+	service.GuardApplier = guardManager
+	ginEngine.Use(guardManager.Middleware())
 
 	// Setup routes
 	r.Setup(ginEngine)
 
-	_, err = channels.Start(ctx)
+	_, err := channels.Start(ctx)
 	if err != nil {
 		return fmt.Errorf("start chat-channel: %w", err)
 	}

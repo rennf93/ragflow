@@ -35,7 +35,7 @@ import (
 // newRouter mirrors the order used by the servers: trusted proxies, Recovery,
 // then the guard. A CORS-style middleware registered before the guard stands in
 // for any header middleware that must also decorate blocked responses.
-func newRouter(t *testing.T, cfg config.GuardConfig, proxies []string) *gin.Engine {
+func newRouter(t *testing.T, cfg Settings, proxies []string) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -48,12 +48,13 @@ func newRouter(t *testing.T, cfg config.GuardConfig, proxies []string) *gin.Engi
 		c.Next()
 	})
 	cfg.Enabled = true
-	mw, closeGuard, err := New(cfg, proxies, config.KvrocksConfig{})
-	if err != nil {
+	cfg.Version = 1
+	m := NewManager(proxies, config.KvrocksConfig{})
+	if err := m.Apply(cfg); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(closeGuard)
-	r.Use(mw)
+	t.Cleanup(m.Close)
+	r.Use(m.Middleware())
 	r.GET("/ok", func(c *gin.Context) { c.String(200, "ok") })
 	r.GET("/health", func(c *gin.Context) { c.String(200, "ok") })
 	r.GET("/search", func(c *gin.Context) { c.String(200, "ok") })
@@ -75,15 +76,8 @@ func do(r http.Handler, method, target, remote, xff string, body io.Reader) *htt
 	return w
 }
 
-func TestDisabledRegistersNothing(t *testing.T) {
-	mw, closeGuard, err := New(config.GuardConfig{RateLimit: 1, RateLimitWindow: 60}, nil, config.KvrocksConfig{})
-	if err != nil || mw != nil || closeGuard != nil {
-		t.Fatalf("disabled guard must return nil, nil, nil, got %v %v %v", mw != nil, closeGuard != nil, err)
-	}
-}
-
 func TestRateLimitBurstReturns429WithCORSHeader(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 3, RateLimitWindow: 60}, nil)
+	r := newRouter(t, Settings{RateLimit: 3, RateLimitWindow: 60}, nil)
 	for i := 0; i < 3; i++ {
 		if w := do(r, "GET", "/ok", "198.51.100.7", "", nil); w.Code != 200 {
 			t.Fatalf("request %d: %d", i, w.Code)
@@ -107,7 +101,7 @@ func TestRateLimitBurstReturns429WithCORSHeader(t *testing.T) {
 }
 
 func TestIPAllowlistReturns403WithCORSHeader(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 100, RateLimitWindow: 60, IPAllowlist: []string{"10.0.0.0/8"}}, nil)
+	r := newRouter(t, Settings{RateLimit: 100, RateLimitWindow: 60, IPAllowlist: []string{"10.0.0.0/8"}}, nil)
 	w := do(r, "GET", "/ok", "192.0.2.1", "", nil)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("outside allowlist: got %d, want 403", w.Code)
@@ -121,7 +115,7 @@ func TestIPAllowlistReturns403WithCORSHeader(t *testing.T) {
 }
 
 func TestSpoofedForwardedForFromUntrustedPeerIsIgnored(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 2, RateLimitWindow: 60, IPAllowlist: []string{"10.0.0.0/8"}}, nil)
+	r := newRouter(t, Settings{RateLimit: 2, RateLimitWindow: 60, IPAllowlist: []string{"10.0.0.0/8"}}, nil)
 	// An untrusted peer naming an allowed address in X-Forwarded-For stays blocked.
 	if w := do(r, "GET", "/ok", "192.0.2.9", "10.1.2.3", nil); w.Code != http.StatusForbidden {
 		t.Fatalf("spoofed allowlisted address: got %d, want 403", w.Code)
@@ -137,7 +131,7 @@ func TestSpoofedForwardedForFromUntrustedPeerIsIgnored(t *testing.T) {
 }
 
 func TestRotatingForwardedForCannotEvadeRateLimit(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 2, RateLimitWindow: 60}, nil)
+	r := newRouter(t, Settings{RateLimit: 2, RateLimitWindow: 60}, nil)
 	codes := make([]int, 0, 4)
 	for _, spoof := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4"} {
 		codes = append(codes, do(r, "GET", "/ok", "192.0.2.9", spoof, nil).Code)
@@ -148,7 +142,7 @@ func TestRotatingForwardedForCannotEvadeRateLimit(t *testing.T) {
 }
 
 func TestAttackInQueryBlockedButBodyAndFreeTextParamsPass(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 100, RateLimitWindow: 60, ScreenRequests: true, ScreenExcludedParams: []string{"keywords"}}, nil)
+	r := newRouter(t, Settings{RateLimit: 100, RateLimitWindow: 60, ScreenRequests: true, ScreenExcludedParams: []string{"keywords"}}, nil)
 	attack := "<script>alert(1)</script>"
 	if w := do(r, "GET", "/search?q="+url.QueryEscape(attack), "198.51.100.7", "", nil); w.Code != http.StatusBadRequest {
 		t.Fatalf("query attack: got %d, want 400", w.Code)
@@ -163,14 +157,14 @@ func TestAttackInQueryBlockedButBodyAndFreeTextParamsPass(t *testing.T) {
 }
 
 func TestScreeningOffByDefaultWhenEnabled(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 100, RateLimitWindow: 60}, nil)
+	r := newRouter(t, Settings{RateLimit: 100, RateLimitWindow: 60}, nil)
 	if w := do(r, "GET", "/search?q="+url.QueryEscape("<script>alert(1)</script>"), "198.51.100.7", "", nil); w.Code != 200 {
 		t.Fatalf("screening is opt-in: got %d", w.Code)
 	}
 }
 
 func TestStreamingResponseIsNotBuffered(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 100, RateLimitWindow: 60, ScreenRequests: true}, nil)
+	r := newRouter(t, Settings{RateLimit: 100, RateLimitWindow: 60, ScreenRequests: true}, nil)
 	release := make(chan struct{})
 	r.GET("/stream", func(c *gin.Context) {
 		c.Header("Content-Type", "text/event-stream")
@@ -204,7 +198,7 @@ func TestStreamingResponseIsNotBuffered(t *testing.T) {
 }
 
 func TestLargeUploadPassesUnbuffered(t *testing.T) {
-	r := newRouter(t, config.GuardConfig{RateLimit: 100, RateLimitWindow: 60, ScreenRequests: true}, nil)
+	r := newRouter(t, Settings{RateLimit: 100, RateLimitWindow: 60, ScreenRequests: true}, nil)
 	const size = 64 << 20
 	w := do(r, "POST", "/chat", "198.51.100.7", "", io.LimitReader(zeroReader{}, size))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "67108864") {
